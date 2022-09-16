@@ -8,7 +8,7 @@ use Net::MQTT::Simple;
 use Net::Graphite;
 
 # Setup mqtt connection
-my $mqtt = Net::MQTT::Simple->new('revspace.nl');
+my $mqtt = Net::MQTT::Simple->new('10.42.42.1');
 
 # Setup mqtt connection
 my $graphite = Net::Graphite->new(
@@ -49,16 +49,61 @@ $mqtt->subscribe(
 	}
 );
 
+
+# subscribe to wifi topics
 $mqtt->subscribe(
-	"revspace/sensors/co2/mhz19" => sub {
+        "revspace/wifi/+/online" => sub {
+                my ($topic, $message) = @_;
+
+                my $since = $topics{$topic} ? ( time() - $topics{$topic} ) : ( time() - 0 );
+
+                my ($type) = $topic =~ /revspace\/wifi\/(.*)/;
+                ($message) = $message =~ m{(\d+(?:\.\d+)?)};
+
+                my $graphite_path = "revspace.wifi.$type.online";
+
+                $graphite->send(
+                        path => $graphite_path,
+                        value => $message,
+                        time => time(),
+                ) unless $since > 1800;
+
+                $topics{$topic} = time();
+        }
+);
+
+# subscribe to doorduino topics
+$mqtt->subscribe(
+        "revspace/doorduino/+" => sub {
+                my ($topic, $message) = @_;
+
+                my ($type) = $topic =~ m[revspace/doorduino/(.*)];
+                ($message) = $message =~ m{(\d+(?:\.\d+)?)};
+
+                my $graphite_path = "revspace.doorduino.$type";
+
+                $graphite->send(
+                        path => $graphite_path,
+                        value => $message,
+                        time => time(),
+                );
+        }
+);
+
+
+
+# CO² clause
+$mqtt->subscribe(
+	"revspace/sensors/co2/+" => sub {
 		my ($topic, $message) = @_;
 
 		my $since = $topics{$topic} ? ( time() - $topics{$topic} ) : ( time() - 0 );
 
+		my ($type) = $topic =~ m[revspace/sensors/co2/(.*)];
 		($message) = $message =~ m{(\-?\d+(?:\.\d+)?)};
 
 		$graphite->send(
-			path => 'revgraph.sensor.co2.mhz19.0',
+			path => "revgraph.sensor.co2.$type.0",
 			value => $message,
 			time => time(),
 		) unless $since > 1800;
@@ -66,6 +111,27 @@ $mqtt->subscribe(
 		$topics{$topic} = time();
 	}
 );
+
+# Netvuil
+$mqtt->subscribe(
+	"revspace/sensors/netvuil/max_min" => sub {
+		my ($topic, $message) = @_;
+
+		my $since = $topics{$topic} ? ( time() - $topics{$topic} ) : ( time() - 0 );
+
+		($message) = $message =~ m{(\-?\d+(?:\.\d+)?)};
+
+		$graphite->send(
+                        path => 'revgraph.sensor.netvuil.max',
+                        value => $message,
+                        time => time(),
+                ) unless $since > 1800;
+
+		$topics{$topic} = time();
+	}
+);
+
+
 
 # subscribe to standard sensor topics
 $mqtt->subscribe(
@@ -89,6 +155,50 @@ $mqtt->subscribe(
 	}
 );
 
+$mqtt->subscribe(
+	"revspace/sensors/snuffelaar/+/+/+" => sub {
+		my ($topic, $message) = @_;
+
+		my $since = $topics{$topic} ? ( time() - $topics{$topic} ) : ( time() - 0 );
+
+		my ($type, $room, $id) = $topic =~ /revspace\/sensors\/snuffelaar\/([^\/]+)\/([^\/]+)\/([^\/]+)/;
+		($message) = $message =~ m{(\-?\d+(?:\.\d+)?)};
+
+		my $graphite_path = "revgraph.sensor.snuffelaar.$type.$room.$id";
+
+		$graphite->send(
+			path => $graphite_path,
+			value => $message,
+			time => time(),
+		) unless $since > 1800;
+
+		$topics{$topic} = time();
+	}
+);
+
+
+# Add tvoc spul
+$mqtt->subscribe(
+	"revspace/sensors/tvoc/+/+/+" => sub {
+                my ($topic, $message) = @_;
+
+                my $since = $topics{$topic} ? ( time() - $topics{$topic} ) : ( time() - 0 );
+
+                my ($type, $room, $id) = $topic =~ /revspace\/sensors\/tvoc\/([^\/]+)\/([^\/]+)\/([^\/]+)/;
+                ($message) = $message =~ m{(\-?\d+(?:\.\d+)?)};
+
+                my $graphite_path = "revgraph.sensor.tvoc.$type.$room.$id";
+
+                $graphite->send(
+                        path => $graphite_path,
+                        value => $message,
+                        time => time(),
+                ) unless $since > 1800;
+
+                $topics{$topic} = time();
+        }
+);
+
 # subscribe to open/closed space
 $mqtt->subscribe(
 	"revspace/state" => sub {
@@ -103,6 +213,98 @@ $mqtt->subscribe(
 		);
 	}
 );
+
+# revspace fan
+$mqtt->subscribe(
+	"revspace/fan" => sub {
+		my ($topic, $message) = @_;
+		
+		($message) = $message =~ m{(\-?\d+(?:\.\d+)?)};
+
+		$graphite->send(
+			path => "revgraph.fan",
+			value => $message,
+			time => time(),
+		);
+	}
+);
+
+# get AC freqs
+$mqtt->subscribe(
+	"revspace/sensors/ac/frequency" => sub {
+		my ($topic, $message) = @_;
+
+		($message) = $message =~ m{(\-?\d+(?:\.\d+)?)};
+
+		$graphite->send(
+			path => "revspace.ac.frequency",
+			value => $message,
+			time => time(),
+		);
+	}
+);
+
+# fan actually on or not
+$mqtt->subscribe(
+	"revspace/fan/state" => sub {
+		my ($topic, $message) = @_;
+
+		$message = $message eq 'on' ? 1 : 0;
+
+		$graphite->send(
+			path => "revgraph.fan.state",
+			value => $message,
+			time => time(),
+		);
+	}
+);
+
+# BigBlueButtonBot connection count
+$mqtt->subscribe(
+	"revspace/b" => sub {
+		my ($topic, $message) = @_;
+		
+		($message) = $message =~ m{(\-?\d+(?:\.\d+)?)};
+
+		$graphite->send(
+			path => "revspace.b",
+			value => $message,
+			time => time(),
+		);
+	}
+);
+
+# Mumble connection count
+$mqtt->subscribe(
+	"revspace/m" => sub {
+		my ($topic, $message) = @_;
+		
+		($message) = $message =~ m{(\-?\d+(?:\.\d+)?)};
+
+		$graphite->send(
+			path => "revspace.m",
+			value => $message,
+			time => time(),
+		);
+	}
+);
+
+# Jitsi connection count
+$mqtt->subscribe(
+	"revspace/j" => sub {
+		my ($topic, $message) = @_;
+		
+		($message) = $message =~ m{(\-?\d+(?:\.\d+)?)};
+
+		$graphite->send(
+			path => "revspace.j",
+			value => $message,
+			time => time(),
+		);
+	}
+);
+
+
 
 # Run this thing
 $mqtt->run;
