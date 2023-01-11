@@ -14,7 +14,7 @@ my $mqtt = Net::MQTT::Simple->new('10.42.42.1');
 my $graphite = Net::Graphite->new(
      host                  => '127.0.0.1',
      port                  => 2003,
-     trace                 => 0,                
+     trace                 => 0,
      proto                 => 'tcp',
      timeout               => 1,
      fire_and_forget       => 1,
@@ -156,6 +156,28 @@ $mqtt->subscribe(
 );
 
 $mqtt->subscribe(
+	"revspace/sensors/+/+" => sub {
+		my ($topic, $message) = @_;
+
+		my $since = $topics{$topic} ? ( time() - $topics{$topic} ) : ( time() - 0 );
+
+		my ($type, $room) = $topic =~ /revspace\/sensors\/([^\/]+)\/([^\/]+)/;
+		($message) = $message =~ m{(\-?\d+(?:\.\d+)?)};
+
+		my $graphite_path = "revgraph.sensor.$type.$room";
+
+		$graphite->send(
+			path => $graphite_path,
+			value => $message,
+			time => time(),
+		) unless $since > 1800;
+
+		$topics{$topic} = time();
+	}
+);
+
+
+$mqtt->subscribe(
 	"revspace/sensors/snuffelaar/+/+/+" => sub {
 		my ($topic, $message) = @_;
 
@@ -218,7 +240,7 @@ $mqtt->subscribe(
 $mqtt->subscribe(
 	"revspace/fan" => sub {
 		my ($topic, $message) = @_;
-		
+
 		($message) = $message =~ m{(\-?\d+(?:\.\d+)?)};
 
 		$graphite->send(
@@ -263,7 +285,7 @@ $mqtt->subscribe(
 $mqtt->subscribe(
 	"revspace/b" => sub {
 		my ($topic, $message) = @_;
-		
+
 		($message) = $message =~ m{(\-?\d+(?:\.\d+)?)};
 
 		$graphite->send(
@@ -278,7 +300,7 @@ $mqtt->subscribe(
 $mqtt->subscribe(
 	"revspace/m" => sub {
 		my ($topic, $message) = @_;
-		
+
 		($message) = $message =~ m{(\-?\d+(?:\.\d+)?)};
 
 		$graphite->send(
@@ -293,7 +315,7 @@ $mqtt->subscribe(
 $mqtt->subscribe(
 	"revspace/j" => sub {
 		my ($topic, $message) = @_;
-		
+
 		($message) = $message =~ m{(\-?\d+(?:\.\d+)?)};
 
 		$graphite->send(
